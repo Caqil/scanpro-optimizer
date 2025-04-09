@@ -77,88 +77,7 @@ class ScanPro_Admin
         }
     }
 
-    /**
-     * Display the API usage dashboard widget.
-     *
-     * @since    1.0.0
-     */
-    public function display_usage_dashboard_widget()
-    {
-        $api_key = get_option('scanpro_api_key', '');
 
-        if (empty($api_key)) {
-            echo '<p>' . sprintf(
-                __('Please enter your ScanPro API key in the <a href="%s">settings page</a> to view usage statistics.', 'scanpro-optimizer'),
-                admin_url('admin.php?page=scanpro-settings')
-            ) . '</p>';
-            return;
-        }
-
-        // Get usage stats for the current month
-        $stats = $this->api_usage->get_usage_stats('month');
-
-        if (is_wp_error($stats)) {
-            echo '<div class="notice notice-error inline"><p>' . esc_html($stats->get_error_message()) . '</p></div>';
-            return;
-        }
-
-        // Display the stats
-        ?>
-        <div class="scanpro-dashboard-stats">
-            <div class="scanpro-stats-grid" style="margin-top: 0;">
-                <div class="scanpro-stat-item">
-                    <span class="scanpro-stat-number"><?php echo number_format_i18n($stats['totalOperations'] ?? 0); ?></span>
-                    <span class="scanpro-stat-label"><?php _e('Total Operations', 'scanpro-optimizer'); ?></span>
-                </div>
-                <div class="scanpro-stat-item">
-                    <span
-                        class="scanpro-stat-number"><?php echo number_format_i18n($stats['operationCounts']['compress'] ?? 0); ?></span>
-                    <span class="scanpro-stat-label"><?php _e('Compressions', 'scanpro-optimizer'); ?></span>
-                </div>
-                <div class="scanpro-stat-item">
-                    <span
-                        class="scanpro-stat-number"><?php echo number_format_i18n($stats['operationCounts']['convert'] ?? 0); ?></span>
-                    <span class="scanpro-stat-label"><?php _e('Conversions', 'scanpro-optimizer'); ?></span>
-                </div>
-            </div>
-
-            <p class="description" style="text-align: center; margin-top: 10px;">
-                <?php _e('Last 30 days of API usage', 'scanpro-optimizer'); ?>
-            </p>
-
-            <p style="text-align: right; margin: 10px 0 0;">
-                <a href="<?php echo admin_url('admin.php?page=scanpro-api-usage'); ?>" class="button button-small">
-                    <?php _e('View Detailed Stats', 'scanpro-optimizer'); ?>
-                </a>
-            </p>
-        </div>
-        <?php
-    }
-
-    /**
-     * Handle AJAX request to get API usage statistics.
-     *
-     * @since    1.0.0
-     */
-    public function ajax_get_usage_stats()
-    {
-        // Check nonce
-        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'scanpro-ajax-nonce')) {
-            wp_send_json_error(array('message' => __('Security check failed.', 'scanpro-optimizer')));
-        }
-
-        // Get period
-        $period = isset($_POST['period']) ? sanitize_text_field($_POST['period']) : 'month';
-
-        // Get usage stats
-        $stats = $this->api_usage->get_usage_stats($period);
-
-        if (is_wp_error($stats)) {
-            wp_send_json_error(array('message' => $stats->get_error_message()));
-        }
-
-        wp_send_json_success($stats);
-    }
     /**
      * Add menu items for plugin settings.
      *
@@ -731,7 +650,146 @@ class ScanPro_Admin
 
         return $form_fields;
     }
+    public function display_api_usage_page()
+    {
+        if (!current_user_can('manage_options')) {
+            wp_die(__('You do not have sufficient permissions to access this page.', 'scanpro-optimizer'));
+        }
 
+        $api_key = get_option('scanpro_api_key', '');
+        if (empty($api_key)) {
+            echo '<div class="notice notice-error"><p>' .
+                sprintf(
+                    __('Please enter your ScanPro API key in the <a href="%s">settings page</a> first.', 'scanpro-optimizer'),
+                    admin_url('admin.php?page=scanpro-settings')
+                ) .
+                '</p></div>';
+            return;
+        }
+
+        ?>
+        <div class="wrap">
+            <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
+
+            <div class="scanpro-usage-period-selector">
+                <select id="scanpro-usage-period">
+                    <option value="today"><?php _e('Today', 'scanpro-optimizer'); ?></option>
+                    <option value=" week"><?php _e('This Week', 'scanpro-optimizer'); ?></option>
+                    <option value="month" selected><?php _e('This Month', 'scanpro-optimizer'); ?></option>
+                    <option value="year"><?php _e('This Year', 'scanpro-optimizer'); ?></option>
+                </select>
+                <button id=" scanpro-refresh-usage" class="button button-secondary">
+                    <?php _e('Refresh', 'scanpro-optimizer'); ?>
+                </button>
+            </div>
+
+            <div id="scanpro-usage-loading" style="display: none;">
+                <p><?php _e('Loading API usage data...', 'scanpro-optimizer'); ?></p>
+            </div>
+
+            <div id="scanpro-usage-error" style="display: none;">
+                <div class="notice notice-error">
+                    <p></p>
+                </div>
+            </div>
+
+            <div id="scanpro-usage-stats" style="display: block;">
+                <div class="scanpro-usage-summary">
+                    <div class="scanpro-stats-grid">
+                        <div class="scanpro-stat-item">
+                            <span id="scanpro-total-operations" class="scanpro-stat-number">0</span>
+                            <span class="scanpro-stat-label"><?php _e('Total Operations', 'scanpro-optimizer'); ?></span>
+                        </div>
+                        <div class=" scanpro-stat-item">
+                            <span id="scanpro-total-compressions" class="scanpro-stat-number">0</span>
+                            <span class="scanpro-stat-label"><?php _e('Compressions', 'scanpro-optimizer'); ?></span>
+                        </div>
+                        <div class=" scanpro-stat-item">
+                            <span id="scanpro-total-conversions" class="scanpro-stat-number">0</span>
+                            <span class="scanpro-stat-label"><?php _e('Conversions', 'scanpro-optimizer'); ?></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div id=" scanpro-usage-chart">
+                    <!-- Chart placeholder -->
+                    <p><?php _e('Usage chart will be loaded dynamically', 'scanpro-optimizer'); ?></p>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            jQuery(document).ready(function ($) {
+                function loadUsageStats(period) {
+                    $('#scanpro-usage-loading').show();
+                    $('#scanpro-usage-stats').hide();
+                    $('#scanpro-usage-error').hide();
+
+                    $.ajax({
+                        url: ajaxurl,
+                        type: 'POST',
+                        data: {
+                            action: 'scanpro_get_usage_stats',
+                            nonce: scanpro_params.nonce,
+                            period: period
+                        },
+                        success: function (response) {
+                            if (response.success) {
+                                $('#scanpro-total-operations').text(response.data.totalOperations || 0);
+                                $('#scanpro-total-compressions').text(response.data.operationCounts?.compress || 0);
+                                $('#scanpro-total-conversions').text(response.data.operationCounts?.convert || 0);
+
+                                $('#scanpro-usage-loading').hide();
+                                $('#scanpro-usage-stats').show();
+                            } else {
+                                $('#scanpro-usage-error p').text(response.data.message);
+                                $('#scanpro-usage-loading').hide();
+                                $('#scanpro-usage-error').show();
+                            }
+                        },
+                        error: function () {
+                            $('#scanpro-usage-error p').text('Error loading usage statistics');
+                            $('#scanpro-usage-loading').hide();
+                            $('#scanpro-usage-error').show();
+                        }
+                    });
+                }
+
+                // Initial load
+                loadUsageStats('month');
+
+                // Period change
+                $('#scanpro-usage-period').on('change', function () {
+                    loadUsageStats($(this).val());
+                });
+
+                // Refresh button
+                $('#scanpro-refresh-usage').on('click', function () {
+                    loadUsageStats($('#scanpro-usage-period').val());
+                });
+            });
+        </script>
+        <?php
+    }
+    public function ajax_get_usage_stats()
+    {
+        // Check nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'scanpro-ajax-nonce')) {
+            wp_send_json_error(array('message' => __('Security check failed.', 'scanpro-optimizer')));
+        }
+
+        // Get period
+        $period = isset($_POST['period']) ? sanitize_text_field($_POST['period']) : 'month';
+
+        // Get usage stats
+        $stats = $this->api_usage->get_usage_stats($period);
+
+        if (is_wp_error($stats)) {
+            wp_send_json_error(array('message' => $stats->get_error_message()));
+        }
+
+        wp_send_json_success($stats);
+    }
     /**
      * Handle AJAX request to compress an image.
      *
@@ -739,13 +797,18 @@ class ScanPro_Admin
      */
     public function ajax_compress_image()
     {
-        // Check nonce
+        // Extensive logging for debugging
+        error_log('ScanPro: Starting ajax_compress_image');
+
+        // Check nonce for security
         if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'scanpro-ajax-nonce')) {
+            error_log('ScanPro: Nonce verification failed');
             wp_send_json_error(array('message' => __('Security check failed.', 'scanpro-optimizer')));
         }
 
         // Check for attachment ID
         if (!isset($_POST['attachment_id']) || !$_POST['attachment_id']) {
+            error_log('ScanPro: No attachment ID provided');
             wp_send_json_error(array('message' => __('No attachment ID provided.', 'scanpro-optimizer')));
         }
 
@@ -753,6 +816,7 @@ class ScanPro_Admin
         $attachment = get_post($attachment_id);
 
         if (!$attachment) {
+            error_log('ScanPro: Invalid attachment ID ' . $attachment_id);
             wp_send_json_error(array('message' => __('Invalid attachment ID.', 'scanpro-optimizer')));
         }
 
@@ -760,53 +824,107 @@ class ScanPro_Admin
         $file_path = get_attached_file($attachment_id);
 
         if (!$file_path || !file_exists($file_path)) {
+            error_log('ScanPro: File not found for attachment ID ' . $attachment_id);
             wp_send_json_error(array('message' => __('File not found.', 'scanpro-optimizer')));
         }
 
-        // Get compression quality
-        $quality = isset($_POST['quality']) ? sanitize_text_field($_POST['quality']) : get_option('scanpro_compression_quality', 'medium');
+        // Additional file validation
+        $file_mime = wp_check_filetype($file_path)['type'];
+        $valid_mime_types = array('image/jpeg', 'image/png', 'image/gif', 'image/webp');
 
-        // Compress the image
-        $result = $this->api->compress_image($file_path, $quality);
-
-        if (is_wp_error($result)) {
-            wp_send_json_error(array('message' => $result->get_error_message()));
+        if (!in_array($file_mime, $valid_mime_types)) {
+            error_log('ScanPro: Unsupported file type ' . $file_mime);
+            wp_send_json_error(array('message' => __('Unsupported file type.', 'scanpro-optimizer')));
         }
 
-        // Replace the original file with the compressed version
-        $original_size = filesize($file_path);
+        // Get compression quality
+        $quality = isset($_POST['quality'])
+            ? sanitize_text_field($_POST['quality'])
+            : get_option('scanpro_compression_quality', 'medium');
 
-        if (copy($result['path'], $file_path)) {
-            // Delete temporary file
-            @unlink($result['path']);
+        // Extensive pre-compression logging
+        error_log('ScanPro Compression Details:');
+        error_log('Attachment ID: ' . $attachment_id);
+        error_log('File Path: ' . $file_path);
+        error_log('File MIME: ' . $file_mime);
+        error_log('Compression Quality: ' . $quality);
 
-            // Update metadata
-            update_post_meta($attachment_id, '_scanpro_optimized', true);
-            update_post_meta($attachment_id, '_scanpro_original_size', $original_size);
-            update_post_meta($attachment_id, '_scanpro_compressed_size', $result['size']);
-            update_post_meta($attachment_id, '_scanpro_savings_percentage', $result['savings_percentage']);
+        // Track API usage before compression
+        $file_size = filesize($file_path);
+        $file_extension = pathinfo($file_path, PATHINFO_EXTENSION);
+        $usage_tracker = new ScanPro_API_Usage();
 
-            // Regenerate thumbnails if it's an image
-            if (wp_attachment_is_image($attachment_id)) {
-                $metadata = wp_generate_attachment_metadata($attachment_id, $file_path);
-                wp_update_attachment_metadata($attachment_id, $metadata);
+        try {
+            $tracking_result = $usage_tracker->track_operation(
+                'compress',
+                $file_extension,
+                $file_size
+            );
+
+            if ($tracking_result === false) {
+                error_log('ScanPro: Usage tracking failed but continuing compression');
+                // Not fatal, so we'll continue with compression
+            }
+        } catch (Exception $e) {
+            error_log('ScanPro Usage Tracking Exception: ' . $e->getMessage());
+            // Log the exception but don't stop the process
+        }
+
+        // Compress the image
+        try {
+            $result = $this->api->compress_image($file_path, $quality);
+
+            if (is_wp_error($result)) {
+                error_log('ScanPro Compression Error: ' . $result->get_error_message());
+                wp_send_json_error(array('message' => $result->get_error_message()));
             }
 
-            $saved = $original_size - $result['size'];
-            $savings_percentage = str_replace('%', '', $result['savings_percentage']);
+            // Replace the original file with the compressed version
+            $original_size = filesize($file_path);
 
-            wp_send_json_success(array(
-                'message' => __('Image compressed successfully!', 'scanpro-optimizer'),
-                'original_size' => size_format($original_size, 2),
-                'compressed_size' => size_format($result['size'], 2),
-                'saved' => size_format($saved, 2),
-                'savings_percentage' => $savings_percentage,
-            ));
-        } else {
-            // Delete temporary file
-            @unlink($result['path']);
+            if (copy($result['path'], $file_path)) {
+                // Delete temporary file
+                @unlink($result['path']);
 
-            wp_send_json_error(array('message' => __('Failed to replace original file with compressed version.', 'scanpro-optimizer')));
+                // Update metadata
+                update_post_meta($attachment_id, '_scanpro_optimized', true);
+                update_post_meta($attachment_id, '_scanpro_original_size', $original_size);
+                update_post_meta($attachment_id, '_scanpro_compressed_size', $result['size']);
+                update_post_meta($attachment_id, '_scanpro_savings_percentage', $result['savings_percentage']);
+
+                // Regenerate thumbnails if it's an image
+                if (wp_attachment_is_image($attachment_id)) {
+                    $metadata = wp_generate_attachment_metadata($attachment_id, $file_path);
+                    wp_update_attachment_metadata($attachment_id, $metadata);
+                }
+
+                $saved = $original_size - $result['size'];
+                $savings_percentage = str_replace('%', '', $result['savings_percentage']);
+
+                // Log successful compression
+                error_log('ScanPro Compression Success:');
+                error_log('Original Size: ' . size_format($original_size, 2));
+                error_log('Compressed Size: ' . size_format($result['size'], 2));
+                error_log('Savings: ' . size_format($saved, 2));
+                error_log('Savings Percentage: ' . $savings_percentage . '%');
+
+                wp_send_json_success(array(
+                    'message' => __('Image compressed successfully!', 'scanpro-optimizer'),
+                    'original_size' => size_format($original_size, 2),
+                    'compressed_size' => size_format($result['size'], 2),
+                    'saved' => size_format($saved, 2),
+                    'savings_percentage' => $savings_percentage,
+                ));
+            } else {
+                // Delete temporary file
+                @unlink($result['path']);
+
+                error_log('ScanPro: Failed to replace original file with compressed version');
+                wp_send_json_error(array('message' => __('Failed to replace original file with compressed version.', 'scanpro-optimizer')));
+            }
+        } catch (Exception $e) {
+            error_log('ScanPro Compression Exception: ' . $e->getMessage());
+            wp_send_json_error(array('message' => __('An unexpected error occurred during compression.', 'scanpro-optimizer')));
         }
     }
     /**

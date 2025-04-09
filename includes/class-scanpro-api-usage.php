@@ -14,7 +14,7 @@ class ScanPro_API_Usage
      * @access   private
      * @var      string    $api_usage_url    The base URL for the API usage endpoint.
      */
-    private $api_usage_url = 'https://scanpro.cc/api/usage';
+    private $api_usage_url = 'https://scanpro.cc/api/track-usage';
 
     /**
      * Initialize the class and set its properties.
@@ -77,29 +77,42 @@ class ScanPro_API_Usage
      */
     public function track_operation($operation, $file_type, $file_size)
     {
-        // We'll use the existing API key for authentication
-        $api_key = get_option('scanpro_api_key', '');
-        if (empty($api_key)) {
-            return new WP_Error('empty_key', __('API key is not set', 'scanpro-optimizer'));
-        }
+        // Add more robust logging and error handling
+        error_log('ScanPro Tracking Operation: ' . $operation);
+        error_log('File Type: ' . $file_type);
+        error_log('File Size: ' . $file_size);
 
-        // Make request to ScanPro API to track usage
+        $api_key = get_option('scanpro_api_key', '');
+        $user_id = get_current_user_id() ?: 'anonymous';
+
         $response = wp_remote_post($this->api_usage_url . '/track', array(
+            'method' => 'POST',
             'headers' => array(
+                'Content-Type' => 'application/json',
                 'x-api-key' => $api_key
             ),
-            'body' => array(
+            'body' => json_encode([
+                'userId' => (string) $user_id,
                 'operation' => $operation,
-                'file_type' => $file_type,
-                'file_size' => $file_size,
                 'timestamp' => current_time('mysql', true)
-            ),
-            'timeout' => 5 // Short timeout since this is non-critical
+            ]),
+            'timeout' => 15
         ));
 
+        // Detailed error handling
         if (is_wp_error($response)) {
-            // Log error but don't return it to avoid interrupting the user's workflow
-            error_log('ScanPro API Usage Tracking Error: ' . $response->get_error_message());
+            error_log('ScanPro API Tracking Error: ' . $response->get_error_message());
+            return false;
+        }
+
+        $http_code = wp_remote_retrieve_response_code($response);
+        $response_body = wp_remote_retrieve_body($response);
+
+        error_log('ScanPro Tracking Response Code: ' . $http_code);
+        error_log('ScanPro Tracking Response Body: ' . $response_body);
+
+        if ($http_code !== 200) {
+            error_log('ScanPro Tracking Failed - HTTP ' . $http_code);
             return false;
         }
 
