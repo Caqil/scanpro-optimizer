@@ -747,7 +747,7 @@ class ScanPro_Admin
         }
 
         // Check file size
-        if ($file['size'] > 15 * 1024 * 1024) { // 15MB limit
+        if ($file['size'] > 25 * 1024 * 1024) { // 15MB limit
             error_log('ScanPro: File too large - ' . $file['size'] . ' bytes');
             wp_send_json_error(array('message' => __('File is too large (max 15MB)', 'scanpro-optimizer')));
         }
@@ -767,9 +767,17 @@ class ScanPro_Admin
             wp_send_json_error(array('message' => __('Input and output formats cannot be the same', 'scanpro-optimizer')));
         }
 
-        // Move uploaded file to temporary location
+        // Create a temporary file WITH THE CORRECT EXTENSION
         $temp_file = wp_tempnam($file['name']);
-        if (!move_uploaded_file($file['tmp_name'], $temp_file)) {
+        $temp_file_with_ext = $temp_file . '.' . $file_extension;
+
+        // Log file information
+        error_log('ScanPro: Original filename: ' . $file['name']);
+        error_log('ScanPro: Temp file path: ' . $temp_file);
+        error_log('ScanPro: Temp file with extension: ' . $temp_file_with_ext);
+
+        // Move uploaded file to temporary location WITH EXTENSION
+        if (!move_uploaded_file($file['tmp_name'], $temp_file_with_ext)) {
             error_log('ScanPro: Failed to move uploaded file');
             wp_send_json_error(array('message' => __('Failed to process uploaded file', 'scanpro-optimizer')));
         }
@@ -777,11 +785,12 @@ class ScanPro_Admin
         // Log conversion attempt
         error_log('ScanPro: Converting file - ' . $file['name'] . ' (' . $file_extension . ' to ' . $output_format . ')');
 
-        // Convert the file
-        $result = $this->api->convert_pdf($temp_file, $output_format);
+        // Convert the file - USING THE FILE WITH EXTENSION
+        $result = $this->api->convert_pdf($temp_file_with_ext, $output_format);
 
-        // Delete the temporary file
+        // Delete the temporary files
         @unlink($temp_file);
+        @unlink($temp_file_with_ext);
 
         if (is_wp_error($result)) {
             error_log('ScanPro Conversion Error: ' . $result->get_error_message());

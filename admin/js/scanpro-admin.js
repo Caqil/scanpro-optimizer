@@ -63,7 +63,7 @@
             }
         });
         
-        // PDF conversion form submission
+       // PDF conversion form submission
 $('.scanpro-pdf-form').on('submit', function(e) {
     e.preventDefault();
     
@@ -185,7 +185,7 @@ $('.scanpro-pdf-form').on('submit', function(e) {
             $(this).data('original-text', $(this).text());
         });
         
-        // Media library image optimization
+       // Media library image optimization
 $(document).on('click', '.scanpro-optimize-button, .scanpro-reoptimize-button', function() {
     var $button = $(this);
     var attachmentId = $button.data('id');

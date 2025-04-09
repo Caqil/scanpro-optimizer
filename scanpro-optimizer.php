@@ -4,8 +4,8 @@
  * Plugin URI: https://scanpro.cc
  * Description: Compress images and convert PDF files using ScanPro API
  * Version: 1.0.0
- * Author: Your Name
- * Author URI: https://yourwebsite.com
+ * Author: scanpro.cc
+ * Author URI: https://scanpro.cc
  * Text Domain: scanpro-optimizer
  * Domain Path: /languages
  * License: GPL-2.0+

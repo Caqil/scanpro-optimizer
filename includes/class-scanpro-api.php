@@ -67,6 +67,8 @@ class ScanPro_API
 
         return true;
     }
+
+
     /**
      * Compress an image using ScanPro API.
      *
@@ -92,7 +94,7 @@ class ScanPro_API
 
         // Check file size - don't try to process files over 10MB
         $file_size = filesize($file_path);
-        if ($file_size > 10 * 1024 * 1024) {
+        if ($file_size > 20 * 1024 * 1024) {
             return new WP_Error('file_too_large', __('File is too large (max 10MB)', 'scanpro-optimizer'));
         }
 
@@ -138,7 +140,18 @@ class ScanPro_API
             return $response;
         }
 
+        // Check HTTP response code first
+        $http_code = wp_remote_retrieve_response_code($response);
+        if ($http_code !== 200) {
+            $error_message = 'HTTP Error: ' . $http_code . ' ' . wp_remote_retrieve_response_message($response);
+            error_log('ScanPro API Error: ' . $error_message);
+            return new WP_Error('http_error', $error_message);
+        }
+
         $body = json_decode(wp_remote_retrieve_body($response), true);
+
+        // Log the entire response for debugging
+        error_log('ScanPro API Response: ' . wp_remote_retrieve_body($response));
 
         if (!isset($body['success']) || !$body['success']) {
             $error_message = isset($body['error']) ? $body['error'] : __('API Error', 'scanpro-optimizer');
@@ -146,8 +159,27 @@ class ScanPro_API
             return new WP_Error('api_error', $error_message);
         }
 
-        // Download the compressed file with increased timeout
+        // Validate the response contains the required fields
+        if (!isset($body['fileUrl']) || empty($body['fileUrl'])) {
+            error_log('ScanPro API Error: Missing or empty fileUrl in response');
+            return new WP_Error('invalid_response', __('API returned an invalid response: missing file URL', 'scanpro-optimizer'));
+        }
+
+        // Make sure we have a complete URL
         $download_url = $body['fileUrl'];
+
+        // If URL is relative, convert to absolute
+        if (strpos($download_url, 'http') !== 0) {
+            // Extract domain from API URL
+            $api_parts = parse_url($this->api_url);
+            $base_url = $api_parts['scheme'] . '://' . $api_parts['host'];
+
+            // Remove leading slash if present for clean concatenation
+            $download_url = ltrim($download_url, '/');
+            $download_url = $base_url . '/' . $download_url;
+        }
+
+        error_log('ScanPro Download URL: ' . $download_url);
 
         // Custom download with increased timeout
         $temp_file = $this->download_file_with_timeout($download_url, 60);
@@ -157,12 +189,18 @@ class ScanPro_API
             return $temp_file;
         }
 
+        // Verify that the downloaded file exists and has content
+        if (!file_exists($temp_file) || filesize($temp_file) === 0) {
+            error_log('ScanPro Download Error: Downloaded file is empty or does not exist');
+            return new WP_Error('download_error', __('Downloaded file is empty or could not be created', 'scanpro-optimizer'));
+        }
+
         return array(
             'path' => $temp_file,
             'url' => $download_url,
-            'size' => $body['compressedSize'],
-            'original_size' => $body['originalSize'],
-            'savings_percentage' => $body['compressionRatio'],
+            'size' => isset($body['compressedSize']) ? $body['compressedSize'] : filesize($temp_file),
+            'original_size' => isset($body['originalSize']) ? $body['originalSize'] : $file_size,
+            'savings_percentage' => isset($body['compressionRatio']) ? $body['compressionRatio'] : '0%',
         );
     }
 
@@ -175,7 +213,23 @@ class ScanPro_API
      */
     private function download_file_with_timeout($url, $timeout = 60)
     {
+        // Validate URL
+        if (empty($url)) {
+            error_log('ScanPro Download Error: Empty URL provided');
+            return new WP_Error('invalid_url', __('A valid URL was not provided', 'scanpro-optimizer'));
+        }
+
+        // Log the download attempt
+        error_log('ScanPro: Downloading file from: ' . $url);
+
+        // Create a unique temporary file
         $temp_file = wp_tempnam();
+
+        // Add our API key to the request headers if downloading from our API
+        $headers = array();
+        if (strpos($url, $this->api_url) === 0 || strpos($url, parse_url($this->api_url, PHP_URL_HOST)) !== false) {
+            $headers['x-api-key'] = $this->api_key;
+        }
 
         $args = array(
             'timeout' => $timeout,
@@ -183,22 +237,41 @@ class ScanPro_API
             'httpversion' => '1.1',
             'stream' => true,
             'filename' => $temp_file,
+            'headers' => $headers,
+            'sslverify' => false, // Sometimes needed for development environments
         );
 
         $response = wp_remote_get($url, $args);
 
         if (is_wp_error($response)) {
             @unlink($temp_file);
+            error_log('ScanPro Download Error: ' . $response->get_error_message());
             return $response;
         }
 
-        if (200 != wp_remote_retrieve_response_code($response)) {
+        $http_code = wp_remote_retrieve_response_code($response);
+
+        error_log('ScanPro Download Response Code: ' . $http_code);
+
+        // Check for HTTP errors
+        if ($http_code !== 200) {
             @unlink($temp_file);
-            return new WP_Error('http_404', trim(wp_remote_retrieve_response_message($response)));
+            $error_message = 'HTTP Error: ' . $http_code . ' ' . wp_remote_retrieve_response_message($response);
+            error_log('ScanPro Download Error: ' . $error_message);
+            return new WP_Error('http_error', $error_message);
         }
 
+        // Verify file was created and has contents
+        if (!file_exists($temp_file) || filesize($temp_file) === 0) {
+            @unlink($temp_file);
+            error_log('ScanPro Download Error: Downloaded file is empty or does not exist');
+            return new WP_Error('empty_file', __('Downloaded file is empty or could not be created', 'scanpro-optimizer'));
+        }
+
+        error_log('ScanPro Download Success: File saved to ' . $temp_file . ' (' . filesize($temp_file) . ' bytes)');
         return $temp_file;
     }
+
     /**
      * Convert a PDF file using ScanPro API.
      *
@@ -217,15 +290,46 @@ class ScanPro_API
             return new WP_Error('file_not_found', __('File not found', 'scanpro-optimizer'));
         }
 
-        $file_mime = wp_check_filetype($file_path)['type'];
-
-        // Get the file extension properly
+        // Get file info more reliably
+        $file_info = wp_check_filetype(basename($file_path), null);
+        $file_mime = $file_info['type'];
         $file_extension = strtolower(pathinfo($file_path, PATHINFO_EXTENSION));
+
+        // Log file info for debugging
+        error_log('ScanPro Convert - File Path: ' . $file_path);
+        error_log('ScanPro Convert - File Extension: ' . $file_extension);
+        error_log('ScanPro Convert - Detected MIME: ' . $file_mime);
 
         // Check if input format is valid
         $valid_input_formats = array('pdf', 'docx', 'xlsx', 'pptx', 'jpg', 'jpeg', 'png');
         if (!in_array($file_extension, $valid_input_formats)) {
-            return new WP_Error('invalid_input_format', __('Invalid or unsupported input format', 'scanpro-optimizer'));
+            error_log('ScanPro Convert - Invalid input format: ' . $file_extension);
+            return new WP_Error('invalid_input_format', __('Invalid or unsupported input format: ' . $file_extension, 'scanpro-optimizer'));
+        }
+
+        // Normalize jpg/jpeg to just jpg for the API
+        $input_format = ($file_extension === 'jpeg') ? 'jpg' : $file_extension;
+
+        // Check if output format is valid
+        $valid_output_formats = array('pdf', 'docx', 'xlsx', 'jpg', 'png', 'txt');
+        if (!in_array($output_format, $valid_output_formats)) {
+            error_log('ScanPro Convert - Invalid output format: ' . $output_format);
+            return new WP_Error('invalid_output_format', __('Invalid or unsupported output format', 'scanpro-optimizer'));
+        }
+
+        // Check for valid conversion paths
+        $valid_conversions = array(
+            'pdf' => array('docx', 'xlsx', 'jpg', 'png', 'txt'),
+            'docx' => array('pdf'),
+            'xlsx' => array('pdf'),
+            'pptx' => array('pdf'),
+            'jpg' => array('pdf'),
+            'png' => array('pdf')
+        );
+
+        if (!isset($valid_conversions[$input_format]) || !in_array($output_format, $valid_conversions[$input_format])) {
+            error_log('ScanPro Convert - Invalid conversion path: ' . $input_format . ' to ' . $output_format);
+            return new WP_Error('invalid_conversion', __('This conversion path is not supported', 'scanpro-optimizer'));
         }
 
         $boundary = wp_generate_password(24, false);
@@ -249,7 +353,7 @@ class ScanPro_API
         $payload .= '--' . $boundary;
         $payload .= "\r\n";
         $payload .= 'Content-Disposition: form-data; name="inputFormat"' . "\r\n\r\n";
-        $payload .= $file_extension;
+        $payload .= $input_format;
         $payload .= "\r\n";
 
         // Add output format
@@ -264,18 +368,26 @@ class ScanPro_API
 
         // Log request for debugging
         error_log('ScanPro API Request: ' . $this->api_url . 'convert');
-        error_log('ScanPro API Input Format: ' . $file_extension);
+        error_log('ScanPro API Input Format: ' . $input_format);
         error_log('ScanPro API Output Format: ' . $output_format);
 
         $response = wp_remote_post($this->api_url . 'convert', array(
             'headers' => $headers,
             'body' => $payload,
-            'timeout' => 60, // Increased timeout to 60 seconds
+            'timeout' => 120, // Increased timeout to 120 seconds
         ));
 
         if (is_wp_error($response)) {
             error_log('ScanPro API Error: ' . $response->get_error_message());
             return $response;
+        }
+
+        // Check HTTP response code first
+        $http_code = wp_remote_retrieve_response_code($response);
+        if ($http_code !== 200) {
+            $error_message = 'HTTP Error: ' . $http_code . ' ' . wp_remote_retrieve_response_message($response);
+            error_log('ScanPro API Error: ' . $error_message);
+            return new WP_Error('http_error', $error_message);
         }
 
         $body = json_decode(wp_remote_retrieve_body($response), true);
@@ -289,20 +401,47 @@ class ScanPro_API
             return new WP_Error('api_error', $error_message);
         }
 
-        // Download the converted file
+        // Validate the response contains the required fields
+        if (!isset($body['fileUrl']) || empty($body['fileUrl'])) {
+            error_log('ScanPro API Error: Missing or empty fileUrl in response');
+            return new WP_Error('invalid_response', __('API returned an invalid response: missing file URL', 'scanpro-optimizer'));
+        }
+
+        // Make sure we have a complete URL
         $download_url = $body['fileUrl'];
-        $temp_file = download_url($download_url);
+
+        // If URL is relative, convert to absolute
+        if (strpos($download_url, 'http') !== 0) {
+            // Extract domain from API URL
+            $api_parts = parse_url($this->api_url);
+            $base_url = $api_parts['scheme'] . '://' . $api_parts['host'];
+
+            // Remove leading slash if present for clean concatenation
+            $download_url = ltrim($download_url, '/');
+            $download_url = $base_url . '/' . $download_url;
+        }
+
+        error_log('ScanPro Download URL: ' . $download_url);
+
+        // Custom download with increased timeout
+        $temp_file = $this->download_file_with_timeout($download_url, 120);
 
         if (is_wp_error($temp_file)) {
             error_log('ScanPro Download Error: ' . $temp_file->get_error_message());
             return $temp_file;
         }
 
+        // Verify that the downloaded file exists and has content
+        if (!file_exists($temp_file) || filesize($temp_file) === 0) {
+            error_log('ScanPro Download Error: Downloaded file is empty or does not exist');
+            return new WP_Error('download_error', __('Downloaded file is empty or could not be created', 'scanpro-optimizer'));
+        }
+
         return array(
             'path' => $temp_file,
             'url' => $download_url,
-            'filename' => $body['filename'],
-            'originalName' => $body['originalName'],
+            'filename' => isset($body['filename']) ? $body['filename'] : basename($download_url),
+            'originalName' => isset($body['originalName']) ? $body['originalName'] : basename($file_path),
         );
     }
 }
