@@ -37,9 +37,9 @@ class ScanPro_Optimizer
     private function load_dependencies()
     {
         require_once SCANPRO_PLUGIN_DIR . 'includes/class-scanpro-loader.php';
+        require_once SCANPRO_PLUGIN_DIR . 'includes/class-scanpro-api-usage.php';
         require_once SCANPRO_PLUGIN_DIR . 'includes/class-scanpro-api.php';
         require_once SCANPRO_PLUGIN_DIR . 'admin/class-scanpro-admin.php';
-        require_once SCANPRO_PLUGIN_DIR . 'includes/class-scanpro-api-usage.php';
         $this->loader = new ScanPro_Loader();
     }
 

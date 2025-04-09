@@ -8,15 +8,6 @@ class ScanPro_API_Usage
 {
 
     /**
-     * The API client instance.
-     *
-     * @since    1.0.0
-     * @access   private
-     * @var      ScanPro_API    $api    The API client instance.
-     */
-    private $api;
-
-    /**
      * The base URL for ScanPro API usage endpoint.
      *
      * @since    1.0.0
@@ -32,7 +23,7 @@ class ScanPro_API_Usage
      */
     public function __construct()
     {
-        $this->api = new ScanPro_API();
+        // Empty constructor to avoid circular dependencies
     }
 
     /**
