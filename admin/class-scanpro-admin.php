@@ -24,6 +24,7 @@ class ScanPro_Admin
     public function __construct()
     {
         $this->api = new ScanPro_API();
+        $this->api_usage = new ScanPro_API_Usage();
     }
 
     /**
@@ -55,10 +56,109 @@ class ScanPro_Admin
                 'convert_error' => __('Error converting file.', 'scanpro-optimizer'),
                 'api_validation_success' => __('API key validated successfully!', 'scanpro-optimizer'),
                 'api_validation_error' => __('Invalid API key.', 'scanpro-optimizer'),
+                'usage_loading' => __('Loading API usage data...', 'scanpro-optimizer'),
+                'usage_error' => __('Error loading API usage data.', 'scanpro-optimizer'),
             )
         ));
     }
+    /**
+     * Register dashboard widgets.
+     *
+     * @since    1.0.0
+     */
+    public function register_dashboard_widgets()
+    {
+        if (current_user_can('manage_options')) {
+            wp_add_dashboard_widget(
+                'scanpro_usage_dashboard_widget',
+                __('ScanPro API Usage', 'scanpro-optimizer'),
+                array($this, 'display_usage_dashboard_widget')
+            );
+        }
+    }
 
+    /**
+     * Display the API usage dashboard widget.
+     *
+     * @since    1.0.0
+     */
+    public function display_usage_dashboard_widget()
+    {
+        $api_key = get_option('scanpro_api_key', '');
+
+        if (empty($api_key)) {
+            echo '<p>' . sprintf(
+                __('Please enter your ScanPro API key in the <a href="%s">settings page</a> to view usage statistics.', 'scanpro-optimizer'),
+                admin_url('admin.php?page=scanpro-settings')
+            ) . '</p>';
+            return;
+        }
+
+        // Get usage stats for the current month
+        $stats = $this->api_usage->get_usage_stats('month');
+
+        if (is_wp_error($stats)) {
+            echo '<div class="notice notice-error inline"><p>' . esc_html($stats->get_error_message()) . '</p></div>';
+            return;
+        }
+
+        // Display the stats
+        ?>
+        <div class="scanpro-dashboard-stats">
+            <div class="scanpro-stats-grid" style="margin-top: 0;">
+                <div class="scanpro-stat-item">
+                    <span class="scanpro-stat-number"><?php echo number_format_i18n($stats['totalOperations'] ?? 0); ?></span>
+                    <span class="scanpro-stat-label"><?php _e('Total Operations', 'scanpro-optimizer'); ?></span>
+                </div>
+                <div class="scanpro-stat-item">
+                    <span
+                        class="scanpro-stat-number"><?php echo number_format_i18n($stats['operationCounts']['compress'] ?? 0); ?></span>
+                    <span class="scanpro-stat-label"><?php _e('Compressions', 'scanpro-optimizer'); ?></span>
+                </div>
+                <div class="scanpro-stat-item">
+                    <span
+                        class="scanpro-stat-number"><?php echo number_format_i18n($stats['operationCounts']['convert'] ?? 0); ?></span>
+                    <span class="scanpro-stat-label"><?php _e('Conversions', 'scanpro-optimizer'); ?></span>
+                </div>
+            </div>
+
+            <p class="description" style="text-align: center; margin-top: 10px;">
+                <?php _e('Last 30 days of API usage', 'scanpro-optimizer'); ?>
+            </p>
+
+            <p style="text-align: right; margin: 10px 0 0;">
+                <a href="<?php echo admin_url('admin.php?page=scanpro-api-usage'); ?>" class="button button-small">
+                    <?php _e('View Detailed Stats', 'scanpro-optimizer'); ?>
+                </a>
+            </p>
+        </div>
+        <?php
+    }
+
+    /**
+     * Handle AJAX request to get API usage statistics.
+     *
+     * @since    1.0.0
+     */
+    public function ajax_get_usage_stats()
+    {
+        // Check nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'scanpro-ajax-nonce')) {
+            wp_send_json_error(array('message' => __('Security check failed.', 'scanpro-optimizer')));
+        }
+
+        // Get period
+        $period = isset($_POST['period']) ? sanitize_text_field($_POST['period']) : 'month';
+
+        // Get usage stats
+        $stats = $this->api_usage->get_usage_stats($period);
+
+        if (is_wp_error($stats)) {
+            wp_send_json_error(array('message' => $stats->get_error_message()));
+        }
+
+        wp_send_json_success($stats);
+    }
     /**
      * Add menu items for plugin settings.
      *
@@ -104,6 +204,15 @@ class ScanPro_Admin
             'manage_options',
             'scanpro-bulk-optimizer',
             array($this, 'display_bulk_optimizer_page')
+        );
+        // API Usage submenu
+        add_submenu_page(
+            'scanpro-settings',
+            __('API Usage', 'scanpro-optimizer'),
+            __('API Usage', 'scanpro-optimizer'),
+            'manage_options',
+            'scanpro-api-usage',
+            array($this, 'display_api_usage_page')
         );
     }
 

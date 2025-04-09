@@ -33,6 +33,7 @@ class ScanPro_API
     public function __construct()
     {
         $this->api_key = get_option('scanpro_api_key', '');
+        $this->usage_tracker = new ScanPro_API_Usage();
     }
 
     /**
@@ -97,6 +98,9 @@ class ScanPro_API
         if ($file_size > 20 * 1024 * 1024) {
             return new WP_Error('file_too_large', __('File is too large (max 10MB)', 'scanpro-optimizer'));
         }
+
+        $file_extension = pathinfo($file_path, PATHINFO_EXTENSION);
+        $this->usage_tracker->track_operation('compress', $file_extension, $file_size);
 
         $boundary = wp_generate_password(24, false);
         $headers = array(
@@ -294,6 +298,10 @@ class ScanPro_API
         $file_info = wp_check_filetype(basename($file_path), null);
         $file_mime = $file_info['type'];
         $file_extension = strtolower(pathinfo($file_path, PATHINFO_EXTENSION));
+        $file_size = filesize($file_path);
+
+        // Track API usage before making the request
+        $this->usage_tracker->track_operation('convert', $file_extension, $file_size);
 
         // Log file info for debugging
         error_log('ScanPro Convert - File Path: ' . $file_path);

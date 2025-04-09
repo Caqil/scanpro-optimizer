@@ -39,7 +39,7 @@ class ScanPro_Optimizer
         require_once SCANPRO_PLUGIN_DIR . 'includes/class-scanpro-loader.php';
         require_once SCANPRO_PLUGIN_DIR . 'includes/class-scanpro-api.php';
         require_once SCANPRO_PLUGIN_DIR . 'admin/class-scanpro-admin.php';
-
+        require_once SCANPRO_PLUGIN_DIR . 'includes/class-scanpro-api-usage.php';
         $this->loader = new ScanPro_Loader();
     }
 
@@ -71,7 +71,7 @@ class ScanPro_Optimizer
         $this->loader->add_action('wp_ajax_scanpro_compress_image', $plugin_admin, 'ajax_compress_image');
         $this->loader->add_action('wp_ajax_scanpro_convert_pdf', $plugin_admin, 'ajax_convert_pdf');
         $this->loader->add_action('wp_ajax_scanpro_validate_api_key', $plugin_admin, 'ajax_validate_api_key');
-
+        $this->loader->add_action('wp_ajax_scanpro_get_usage_stats', $plugin_admin, 'ajax_get_usage_stats');
         // Automatic image compression on upload
         $this->loader->add_filter('wp_handle_upload', $plugin_admin, 'compress_uploaded_image');
     }

@@ -184,3 +184,137 @@
     color: #d63638;
     border: 1px solid #f5c6cb;
 }
+/* API Usage Page */
+.scanpro-usage-period-selector {
+    margin: 15px 0;
+    display: flex;
+    align-items: center;
+}
+
+#scanpro-usage-period {
+    margin-right: 10px;
+}
+
+.scanpro-chart-container {
+    position: relative;
+    height: 250px;
+    margin-top: 30px;
+    border-bottom: 1px solid #ddd;
+}
+
+.scanpro-chart-labels {
+    display: flex;
+    justify-content: space-between;
+    position: absolute;
+    bottom: -20px;
+    left: 0;
+    right: 0;
+}
+
+.scanpro-chart-label {
+    font-size: 10px;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transform: rotate(-45deg);
+    transform-origin: top left;
+    padding: 0 5px;
+}
+
+.scanpro-chart-data {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    height: 100%;
+}
+
+.scanpro-chart-bar-group {
+    display: flex;
+    height: 100%;
+    flex: 1;
+    margin: 0 5px;
+    align-items: flex-end;
+}
+
+.scanpro-chart-bar {
+    width: 40%;
+    margin: 0 2px;
+    min-height: 1px;
+    border-radius: 2px 2px 0 0;
+    transition: height 0.3s ease;
+}
+
+.scanpro-chart-bar.compression {
+    background-color: #2271b1;
+}
+
+.scanpro-chart-bar.conversion {
+    background-color: #d63638;
+}
+
+.scanpro-chart-legend {
+    display: flex;
+    justify-content: center;
+    margin-top: 30px;
+}
+
+.scanpro-legend-item {
+    display: flex;
+    align-items: center;
+    margin: 0 10px;
+}
+
+.scanpro-legend-color {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    margin-right: 5px;
+    border-radius: 2px;
+}
+
+.scanpro-legend-color.compression {
+    background-color: #2271b1;
+}
+
+.scanpro-legend-color.conversion {
+    background-color: #d63638;
+}
+
+#scanpro-usage-loading {
+    min-height: 100px;
+}
+
+.scanpro-usage-summary {
+    margin-top: 20px;
+    padding: 10px;
+    background: #f6f7f7;
+    border: 1px solid #ddd;
+    border-radius: 3px;
+}
+
+.scanpro-usage-summary h3 {
+    margin-top: 0;
+    font-size: 14px;
+}
+
+.scanpro-usage-summary-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.scanpro-usage-summary-table th,
+.scanpro-usage-summary-table td {
+    text-align: left;
+    padding: 8px;
+    border-bottom: 1px solid #eee;
+}
+
+.scanpro-usage-summary-table th {
+    font-weight: 600;
+    color: #23282d;
+}
+
+.scanpro-usage-summary-table tr:last-child td {
+    border-bottom: none;
+}

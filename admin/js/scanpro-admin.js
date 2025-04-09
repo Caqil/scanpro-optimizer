@@ -372,6 +372,129 @@ $(document).on('click', '.scanpro-optimize-button, .scanpro-reoptimize-button', 
                 });
             });
         }
+        // API usage page functionality
+    if ($('#scanpro-usage-period').length) {
+        // Load usage stats on page load
+        loadUsageStats();
+        
+        // Handle period change
+        $('#scanpro-usage-period').on('change', function() {
+            loadUsageStats();
+        });
+        
+        // Handle refresh button
+        $('#scanpro-refresh-usage').on('click', function() {
+            loadUsageStats();
+        });
+        
+        function loadUsageStats() {
+            var period = $('#scanpro-usage-period').val();
+            
+            $('#scanpro-usage-loading').show();
+            $('#scanpro-usage-stats').hide();
+            $('#scanpro-usage-error').hide();
+            
+            $.ajax({
+                url: scanpro_params.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'scanpro_get_usage_stats',
+                    nonce: scanpro_params.nonce,
+                    period: period
+                },
+                success: function(response) {
+                    if (response.success) {
+                        updateUsageStats(response.data);
+                    } else {
+                        $('#scanpro-usage-error').find('p').text(response.data.message);
+                        $('#scanpro-usage-error').show();
+                    }
+                },
+                error: function() {
+                    $('#scanpro-usage-error').find('p').text(scanpro_params.i18n.usage_error);
+                    $('#scanpro-usage-error').show();
+                },
+                complete: function() {
+                    $('#scanpro-usage-loading').hide();
+                }
+            });
+        }
+        
+        function updateUsageStats(data) {
+            // Update totals
+            $('#scanpro-total-operations').text(data.totalOperations || 0);
+            
+            // Update operation counts
+            var compressions = data.operationCounts && data.operationCounts.compress ? data.operationCounts.compress : 0;
+            var conversions = data.operationCounts && data.operationCounts.convert ? data.operationCounts.convert : 0;
+            
+            $('#scanpro-total-compressions').text(compressions);
+            $('#scanpro-total-conversions').text(conversions);
+            
+            // If we have daily data, create a chart
+            if (data.dailyStats && data.dailyStats.length > 0) {
+                createUsageChart(data.dailyStats);
+            } else {
+                // No daily stats, just show a message
+                $('#scanpro-usage-chart').html('<p class="description" style="text-align: center; margin-top: 100px;">' + 
+                    'No detailed usage data available for this period.' + '</p>');
+            }
+            
+            $('#scanpro-usage-stats').show();
+        }
+        
+        function createUsageChart(dailyStats) {
+            var ctx = document.getElementById('scanpro-usage-chart');
+            
+            // Clear previous chart if it exists
+            if (window.scanproUsageChart) {
+                window.scanproUsageChart.destroy();
+            }
+            
+            // Format data for the chart
+            var labels = [];
+            var compressionData = [];
+            var conversionData = [];
+            
+            dailyStats.forEach(function(day) {
+                labels.push(day.date);
+                compressionData.push(day.compress || 0);
+                conversionData.push(day.convert || 0);
+            });
+            
+            // Create a simple bar chart with div elements
+            var chartHtml = '<div class="scanpro-chart-container">';
+            chartHtml += '<div class="scanpro-chart-labels">';
+            
+            labels.forEach(function(label) {
+                chartHtml += '<div class="scanpro-chart-label">' + label + '</div>';
+            });
+            
+            chartHtml += '</div>';
+            chartHtml += '<div class="scanpro-chart-data">';
+            
+            var maxValue = Math.max(...compressionData, ...conversionData);
+            
+            for (var i = 0; i < labels.length; i++) {
+                var compressionHeight = maxValue > 0 ? (compressionData[i] / maxValue) * 100 : 0;
+                var conversionHeight = maxValue > 0 ? (conversionData[i] / maxValue) * 100 : 0;
+                
+                chartHtml += '<div class="scanpro-chart-bar-group">';
+                chartHtml += '<div class="scanpro-chart-bar compression" style="height: ' + compressionHeight + '%" title="Compressions: ' + compressionData[i] + '"></div>';
+                chartHtml += '<div class="scanpro-chart-bar conversion" style="height: ' + conversionHeight + '%" title="Conversions: ' + conversionData[i] + '"></div>';
+                chartHtml += '</div>';
+            }
+            
+            chartHtml += '</div>';
+            chartHtml += '<div class="scanpro-chart-legend">';
+            chartHtml += '<div class="scanpro-legend-item"><span class="scanpro-legend-color compression"></span> ' + scanpro_params.i18n.compressions + '</div>';
+            chartHtml += '<div class="scanpro-legend-item"><span class="scanpro-legend-color conversion"></span> ' + scanpro_params.i18n.conversions + '</div>';
+            chartHtml += '</div>';
+            chartHtml += '</div>';
+            
+            $('#scanpro-usage-chart').html(chartHtml);
+        }
+    }
     });
 
 })(jQuery);
