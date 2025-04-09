@@ -215,7 +215,8 @@ class ScanPro_Admin
             <option value="no" <?php selected($auto_compress, 'no'); ?>><?php _e('No', 'scanpro-optimizer'); ?></option>
         </select>
         <p class="description">
-            <?php _e('Automatically compress images when uploaded to the media library.', 'scanpro-optimizer'); ?></p>
+            <?php _e('Automatically compress images when uploaded to the media library.', 'scanpro-optimizer'); ?>
+        </p>
         <?php
     }
 
@@ -230,11 +231,14 @@ class ScanPro_Admin
         ?>
         <select id="scanpro_compression_quality" name="scanpro_compression_quality">
             <option value="low" <?php selected($compression_quality, 'low'); ?>>
-                <?php _e('Low - Maximum Compression', 'scanpro-optimizer'); ?></option>
+                <?php _e('Low - Maximum Compression', 'scanpro-optimizer'); ?>
+            </option>
             <option value="medium" <?php selected($compression_quality, 'medium'); ?>>
-                <?php _e('Medium - Balanced', 'scanpro-optimizer'); ?></option>
+                <?php _e('Medium - Balanced', 'scanpro-optimizer'); ?>
+            </option>
             <option value="high" <?php selected($compression_quality, 'high'); ?>>
-                <?php _e('High - Better Quality', 'scanpro-optimizer'); ?></option>
+                <?php _e('High - Better Quality', 'scanpro-optimizer'); ?>
+            </option>
         </select>
         <p class="description"><?php _e('Select compression quality for uploaded images.', 'scanpro-optimizer'); ?></p>
         <?php
@@ -696,7 +700,6 @@ class ScanPro_Admin
             wp_send_json_error(array('message' => __('Failed to replace original file with compressed version.', 'scanpro-optimizer')));
         }
     }
-
     /**
      * Handle AJAX request to convert a PDF.
      *
@@ -725,12 +728,54 @@ class ScanPro_Admin
         $file = $_FILES['pdf_file'];
 
         if ($file['error'] !== UPLOAD_ERR_OK) {
-            wp_send_json_error(array('message' => __('File upload failed.', 'scanpro-optimizer')));
+            $upload_error_messages = array(
+                UPLOAD_ERR_INI_SIZE => 'The uploaded file exceeds the upload_max_filesize directive in php.ini',
+                UPLOAD_ERR_FORM_SIZE => 'The uploaded file exceeds the MAX_FILE_SIZE directive that was specified in the HTML form',
+                UPLOAD_ERR_PARTIAL => 'The uploaded file was only partially uploaded',
+                UPLOAD_ERR_NO_FILE => 'No file was uploaded',
+                UPLOAD_ERR_NO_TMP_DIR => 'Missing a temporary folder',
+                UPLOAD_ERR_CANT_WRITE => 'Failed to write file to disk',
+                UPLOAD_ERR_EXTENSION => 'A PHP extension stopped the file upload'
+            );
+
+            $error_message = isset($upload_error_messages[$file['error']])
+                ? $upload_error_messages[$file['error']]
+                : 'Unknown upload error';
+
+            error_log('ScanPro Upload Error: ' . $error_message);
+            wp_send_json_error(array('message' => __('File upload failed: ', 'scanpro-optimizer') . $error_message));
+        }
+
+        // Check file size
+        if ($file['size'] > 15 * 1024 * 1024) { // 15MB limit
+            error_log('ScanPro: File too large - ' . $file['size'] . ' bytes');
+            wp_send_json_error(array('message' => __('File is too large (max 15MB)', 'scanpro-optimizer')));
+        }
+
+        // Validate file extension
+        $file_extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+        $valid_extensions = array('pdf', 'docx', 'xlsx', 'pptx', 'jpg', 'jpeg', 'png');
+
+        if (!in_array($file_extension, $valid_extensions)) {
+            error_log('ScanPro: Invalid file extension - ' . $file_extension);
+            wp_send_json_error(array('message' => __('Invalid file type. Allowed types: PDF, DOCX, XLSX, PPTX, JPG, PNG', 'scanpro-optimizer')));
+        }
+
+        // Check if converting to the same format
+        if ($file_extension === $output_format) {
+            error_log('ScanPro: Same input and output format - ' . $file_extension);
+            wp_send_json_error(array('message' => __('Input and output formats cannot be the same', 'scanpro-optimizer')));
         }
 
         // Move uploaded file to temporary location
         $temp_file = wp_tempnam($file['name']);
-        move_uploaded_file($file['tmp_name'], $temp_file);
+        if (!move_uploaded_file($file['tmp_name'], $temp_file)) {
+            error_log('ScanPro: Failed to move uploaded file');
+            wp_send_json_error(array('message' => __('Failed to process uploaded file', 'scanpro-optimizer')));
+        }
+
+        // Log conversion attempt
+        error_log('ScanPro: Converting file - ' . $file['name'] . ' (' . $file_extension . ' to ' . $output_format . ')');
 
         // Convert the file
         $result = $this->api->convert_pdf($temp_file, $output_format);
@@ -739,6 +784,7 @@ class ScanPro_Admin
         @unlink($temp_file);
 
         if (is_wp_error($result)) {
+            error_log('ScanPro Conversion Error: ' . $result->get_error_message());
             wp_send_json_error(array('message' => $result->get_error_message()));
         }
 
@@ -754,6 +800,7 @@ class ScanPro_Admin
 
             if (is_wp_error($attachment_id)) {
                 @unlink($file_path);
+                error_log('ScanPro: Failed to add file to media library - ' . $attachment_id->get_error_message());
                 wp_send_json_error(array('message' => $attachment_id->get_error_message()));
             }
 
